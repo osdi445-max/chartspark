@@ -1,0 +1,57 @@
+name: Python Package (Conda)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 4
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        activate-environment: chartspark-env
+        python-version: ${{ matrix.python-version }}
+        channels: conda-forge
+        auto-update-conda: true
+        environment-file: environment.yml   # ← Change to requirements.txt workflow if you prefer
+
+    - name: Install dependencies (fallback for requirements.txt)
+      if: hashFiles('requirements.txt') != ''
+      shell: bash -el {0}
+      run: |
+        conda activate chartspark-env
+        pip install -r requirements.txt
+
+    - name: Lint with flake8
+      shell: bash -el {0}
+      run: |
+        conda activate chartspark-env
+        pip install flake8
+        # Stop build if critical errors
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Warnings only
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Test with pytest
+      shell: bash -el {0}
+      run: |
+        conda activate chartspark-env
+        pip install pytest pytest-cov
+        pytest --cov=. --cov-report=xml
+
+    - name: Upload coverage report
+      if: matrix.python-version == '3.10'   # Only upload once
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage.xml
