@@ -1,0 +1,26 @@
+name: chartspark
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pip
+  - numpy=1.23
+  - pandas=1.4
+  - matplotlib=3.5
+  - pillow=9.3
+  - scipy=1.11
+  - tqdm
+  - opencv
+  - pytorch=1.12.1
+  - torchvision=0.13.1
+  - pip:
+    - Flask==2.2.2
+    - Flask-Cors==3.0.10
+    - huggingface-hub==0.12.0
+    - tokenizers==0.13.1
+    - gensim==4.3.2
+    - wordcloud==1.9.3
+    - diffusers==0.25.1
+    - keybert==0.7.0
