@@ -1,4 +1,4 @@
-name: CI + Model Downloads
+name: CI + Models
 
 on:
   push:
@@ -8,17 +8,21 @@ on:
   workflow_dispatch:
     inputs:
       download_diffusion_models:
-        description: "Download the three large Stable Diffusion models (slow, ~15 GB)"
+        description: "Force download of the three large Stable Diffusion models"
         required: false
         type: boolean
         default: false
+  schedule:
+    # Nightly at 03:00 UTC (06:00 AST)
+    - cron: "0 3 * * *"
 
 jobs:
-  backend-with-models:
+  # ------------------------------------------------------------------
+  # 1. Fast backend job (runs on every push / PR)
+  # ------------------------------------------------------------------
+  backend:
     runs-on: ubuntu-latest
-    # Increase timeout because model downloads can take a while
-    timeout-minutes: 90
-
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash -l {0}
@@ -27,12 +31,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Free up disk space
+      - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
           df -h
 
       - name: Set up Miniconda
@@ -45,87 +46,52 @@ jobs:
           auto-activate-base: false
           use-mamba: true
 
-      - name: Cache Hugging Face models
+      - name: Cache Hugging Face + mask
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/huggingface
             mask/
-          key: hf-models-${{ hashFiles('environment.yml') }}-${{ github.sha }}
+          key: models-${{ runner.os }}-${{ hashFiles('environment.yml') }}
           restore-keys: |
-            hf-models-${{ hashFiles('environment.yml') }}-
-            hf-models-
+            models-${{ runner.os }}-
 
-      # -------------------------------------------------
-      # 1. Background removal model (always download)
-      # -------------------------------------------------
       - name: Download background-removal model
         run: |
           mkdir -p mask
           if [ ! -f mask/bg_removal.pth ]; then
-            echo "Downloading bg_removal model from Google Drive..."
             gdown --id 1XHIzgTzY5BQHw140EDIgwIb53K659ENH -O mask/bg_removal.pth
-          else
-            echo "bg_removal.pth already present (from cache)"
           fi
-          ls -lh mask/
+          ls -lh mask/bg_removal.pth
 
-      # -------------------------------------------------
-      # 2. Optional: large diffusion models
-      # -------------------------------------------------
-      - name: Download Stable Diffusion models (optional)
+      - name: Optional heavy models (manual / label)
         if: ${{ github.event.inputs.download_diffusion_models == 'true' || contains(github.event.pull_request.labels.*.name, 'download-models') }}
         env:
           HF_HOME: ${{ github.workspace }}/.cache/huggingface
         run: |
-          echo "Downloading large diffusion models (this can take 20-40 minutes)..."
           python -c "
           from huggingface_hub import snapshot_download
           import os
-
-          models = [
+          for repo in [
               'runwayml/stable-diffusion-v1-5',
               'stabilityai/stable-diffusion-2-depth',
               'Fantasy-Studio/Paint-by-Example',
-          ]
-          for repo_id in models:
-              print(f'Downloading {repo_id} ...')
-              snapshot_download(
-                  repo_id=repo_id,
-                  cache_dir=os.environ['HF_HOME'],
-                  local_files_only=False,
-              )
-              print(f'Finished {repo_id}')
+          ]:
+              print(f'Downloading {repo} ...')
+              snapshot_download(repo_id=repo, cache_dir=os.environ['HF_HOME'])
           "
 
-      - name: Verify models & environment
+      - name: Smoke checks
         run: |
-          conda list
           python -c "
-          import torch, diffusers, flask, gdown
-          print('Core packages OK')
-          print('Torch:', torch.__version__)
+          import torch, diffusers, flask, os
+          assert os.path.isfile('mask/bg_removal.pth')
+          print('Environment + bg model OK')
           "
 
-          # Quick check that the background model exists
-          import os
-          assert os.path.isfile('mask/bg_removal.pth'), 'bg_removal.pth missing!'
-          print('Background removal model is present')
-
-      # -------------------------------------------------
-      # 3. Example integration test placeholder
-      # -------------------------------------------------
-      - name: Run integration tests (example)
-        run: |
-          # Replace this with your real test command
-          # e.g. python -m pytest tests/integration/ -v
-          echo "Integration tests would run here"
-          # Example smoke test:
-          python -c "
-          from diffusers import StableDiffusionPipeline
-          print('diffusers import successful')
-          "
-
+  # ------------------------------------------------------------------
+  # 2. Frontend job (unchanged)
+  # ------------------------------------------------------------------
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -135,8 +101,117 @@ jobs:
           node-version: "18"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
-      - name: Install & build frontend
+      - name: Install & build
         working-directory: frontend
         run: |
           npm ci
           npm run build
+
+  # ------------------------------------------------------------------
+  # 3. NIGHTLY job – always downloads the heavy models
+  # ------------------------------------------------------------------
+  nightly-models:
+    # Only run on the schedule or when manually requested
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
+          df -h
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.9"
+          environment-file: environment.yml
+          activate-environment: chartspark
+          auto-activate-base: false
+          use-mamba: true
+
+      - name: Cache everything
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            mask/
+            ${{ env.CONDA }}/envs
+          key: nightly-models-${{ runner.os }}-${{ hashFiles('environment.yml') }}-${{ github.run_id }}
+          restore-keys: |
+            nightly-models-${{ runner.os }}-${{ hashFiles('environment.yml') }}-
+            nightly-models-${{ runner.os }}-
+
+      - name: Download background-removal model
+        run: |
+          mkdir -p mask
+          if [ ! -f mask/bg_removal.pth ]; then
+            gdown --id 1XHIzgTzY5BQHw140EDIgwIb53K659ENH -O mask/bg_removal.pth
+          fi
+
+      - name: Download all heavy diffusion models
+        env:
+          HF_HOME: ${{ github.workspace }}/.cache/huggingface
+          HF_HUB_ENABLE_HF_TRANSFER: 1   # faster downloads when available
+        run: |
+          python -c "
+          from huggingface_hub import snapshot_download
+          import os, time
+
+          models = [
+              'runwayml/stable-diffusion-v1-5',
+              'stabilityai/stable-diffusion-2-depth',
+              'Fantasy-Studio/Paint-by-Example',
+          ]
+
+          for repo_id in models:
+              start = time.time()
+              print(f'=== Downloading {repo_id} ===')
+              snapshot_download(
+                  repo_id=repo_id,
+                  cache_dir=os.environ['HF_HOME'],
+                  local_files_only=False,
+              )
+              print(f'Finished {repo_id} in {time.time()-start:.0f}s')
+          "
+
+      - name: Verify all models are present
+        run: |
+          python -c "
+          import os
+          from pathlib import Path
+          from huggingface_hub import scan_cache_dir
+
+          # Background model
+          assert Path('mask/bg_removal.pth').is_file(), 'bg_removal.pth missing'
+          print('✓ bg_removal.pth present')
+
+          # Diffusion models (check cache)
+          cache = scan_cache_dir()
+          repos = {repo.repo_id for repo in cache.repos}
+          required = {
+              'runwayml/stable-diffusion-v1-5',
+              'stabilityai/stable-diffusion-2-depth',
+              'Fantasy-Studio/Paint-by-Example',
+          }
+          missing = required - repos
+          if missing:
+              raise SystemExit(f'Missing models in cache: {missing}')
+          print('✓ All three diffusion models present in HF cache')
+          print('Nightly model download & verification succeeded')
+          "
+
+      - name: Optional – run heavier integration tests
+        run: |
+          # Place any long-running tests that need the full models here
+          echo "Nightly integration tests would run at this point"
+          # Example:
+          # python -m pytest tests/integration/ -v --timeout=600
