@@ -23,4 +23,5 @@ dependencies:
     - gensim==4.3.2
     - wordcloud==1.9.3
     - diffusers==0.25.1
+    - gdown
     - keybert==0.7.0
