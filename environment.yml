@@ -18,7 +18,7 @@ dependencies:
   - pip:
     - Flask==2.2.2
     - Flask-Cors==3.0.10
-    - huggingface-hub==0.12.0
+    - huggingface-hub>=0.20.0
     - tokenizers==0.13.1
     - gensim==4.3.2
     - wordcloud==1.9.3
