@@ -46,6 +46,10 @@ jobs:
           auto-activate-base: false
           use-mamba: true
 
+      - name: Install gdown
+        run: |
+          pip install gdown
+
       - name: Cache Hugging Face + mask
         uses: actions/cache@v4
         with:
@@ -137,6 +141,10 @@ jobs:
           activate-environment: chartspark
           auto-activate-base: false
           use-mamba: true
+
+      - name: Install gdown
+        run: |
+          pip install gdown
 
       - name: Cache everything
         uses: actions/cache@v4
