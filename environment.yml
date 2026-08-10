@@ -20,6 +20,7 @@ dependencies:
     - Flask-Cors==3.0.10
     - gdown>=4.4.0
     - huggingface-hub>=0.20.2
+    - hf_transfer>=0.1.4
     - tokenizers==0.13.1
     - gensim==4.3.2
     - wordcloud==1.9.3
