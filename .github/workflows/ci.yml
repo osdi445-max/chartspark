@@ -72,6 +72,7 @@ jobs:
         if: ${{ github.event.inputs.download_diffusion_models == 'true' || contains(github.event.pull_request.labels.*.name, 'download-models') }}
         env:
           HF_HOME: ${{ github.workspace }}/.cache/huggingface
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import snapshot_download
@@ -169,6 +170,7 @@ jobs:
         env:
           HF_HOME: ${{ github.workspace }}/.cache/huggingface
           HF_HUB_ENABLE_HF_TRANSFER: 1   # faster downloads (requires hf_transfer)
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import snapshot_download
