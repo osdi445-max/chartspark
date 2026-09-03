@@ -72,18 +72,29 @@ jobs:
         if: ${{ github.event.inputs.download_diffusion_models == 'true' || contains(github.event.pull_request.labels.*.name, 'download-models') }}
         env:
           HF_HOME: ${{ github.workspace }}/.cache/huggingface
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import snapshot_download
           import os
+          token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_HUB_TOKEN')
+          if not token:
+              raise SystemExit(
+                  'Missing repository secret HF_TOKEN (or HUGGING_FACE_HUB_TOKEN). '
+                  'Add it under Settings → Secrets and variables → Actions. '
+                  'The token must be able to download gated models: '
+                  'runwayml/stable-diffusion-v1-5, '
+                  'stabilityai/stable-diffusion-2-depth, '
+                  'Fantasy-Studio/Paint-by-Example.'
+              )
           for repo in [
               'runwayml/stable-diffusion-v1-5',
               'stabilityai/stable-diffusion-2-depth',
               'Fantasy-Studio/Paint-by-Example',
           ]:
               print(f'Downloading {repo} ...')
-              snapshot_download(repo_id=repo, cache_dir=os.environ['HF_HOME'])
+              snapshot_download(repo_id=repo, cache_dir=os.environ['HF_HOME'], token=token)
           "
 
       - name: Smoke checks
@@ -133,6 +144,23 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
           df -h
 
+      - name: Require Hugging Face token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
+        run: |
+          TOKEN="${HF_TOKEN:-$HUGGING_FACE_HUB_TOKEN}"
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Missing repository secret HF_TOKEN (or HUGGING_FACE_HUB_TOKEN)."
+            echo "Add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "The token must have access to gated models:"
+            echo "  - runwayml/stable-diffusion-v1-5"
+            echo "  - stabilityai/stable-diffusion-2-depth"
+            echo "  - Fantasy-Studio/Paint-by-Example"
+            exit 1
+          fi
+          echo "Hugging Face token is present (value not printed)."
+
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v4
         with:
@@ -170,11 +198,16 @@ jobs:
         env:
           HF_HOME: ${{ github.workspace }}/.cache/huggingface
           HF_HUB_ENABLE_HF_TRANSFER: 1   # faster downloads (requires hf_transfer)
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import snapshot_download
           import os, time
+
+          token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_HUB_TOKEN')
+          if not token:
+              raise SystemExit('Missing HF_TOKEN / HUGGING_FACE_HUB_TOKEN secret')
 
           models = [
               'runwayml/stable-diffusion-v1-5',
@@ -189,6 +222,7 @@ jobs:
                   repo_id=repo_id,
                   cache_dir=os.environ['HF_HOME'],
                   local_files_only=False,
+                  token=token,
               )
               print(f'Finished {repo_id} in {time.time()-start:.0f}s')
           "
