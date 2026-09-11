@@ -144,13 +144,21 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" || true
           df -h
 
-      - name: Require Hugging Face token
+      - name: Check Hugging Face token availability
+        id: hf-token
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN || secrets.HUGGING_FACE_HUB_TOKEN }}
         run: |
           TOKEN="${HF_TOKEN:-$HUGGING_FACE_HUB_TOKEN}"
-          if [ -z "$TOKEN" ]; then
+          if [ -n "$TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Hugging Face token is present (value not printed)."
+            exit 0
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "::error::Missing repository secret HF_TOKEN (or HUGGING_FACE_HUB_TOKEN)."
             echo "Add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
             echo "The token must have access to gated models:"
@@ -159,9 +167,12 @@ jobs:
             echo "  - Fantasy-Studio/Paint-by-Example"
             exit 1
           fi
-          echo "Hugging Face token is present (value not printed)."
+
+          echo "::warning::Skipping nightly model downloads because HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) is not configured."
+          echo "Add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
 
       - name: Set up Miniconda
+        if: steps.hf-token.outputs.available == 'true'
         uses: conda-incubator/setup-miniconda@v4
         with:
           auto-update-conda: true
@@ -172,10 +183,12 @@ jobs:
           use-mamba: true
 
       - name: Install gdown
+        if: steps.hf-token.outputs.available == 'true'
         run: |
           pip install gdown
 
       - name: Cache everything
+        if: steps.hf-token.outputs.available == 'true'
         uses: actions/cache@v5
         with:
           path: |
@@ -188,6 +201,7 @@ jobs:
             nightly-models-${{ runner.os }}-
 
       - name: Download background-removal model
+        if: steps.hf-token.outputs.available == 'true'
         run: |
           mkdir -p mask
           if [ ! -f mask/bg_removal.pth ]; then
@@ -195,6 +209,7 @@ jobs:
           fi
 
       - name: Download all heavy diffusion models
+        if: steps.hf-token.outputs.available == 'true'
         env:
           HF_HOME: ${{ github.workspace }}/.cache/huggingface
           HF_HUB_ENABLE_HF_TRANSFER: 1   # faster downloads (requires hf_transfer)
@@ -228,6 +243,7 @@ jobs:
           "
 
       - name: Verify all models are present
+        if: steps.hf-token.outputs.available == 'true'
         run: |
           python -c "
           import os
@@ -254,6 +270,7 @@ jobs:
           "
 
       - name: Optional – run heavier integration tests
+        if: steps.hf-token.outputs.available == 'true'
         run: |
           # Place any long-running tests that need the full models here
           echo "Nightly integration tests would run at this point"
